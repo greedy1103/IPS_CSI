@@ -1,0 +1,16 @@
+{
+    "timestamp": "20250405_175816",
+    "data_dir": "C:\\Users\\Dell\\DATN\\IPS_CSI\\data",
+    "subset_ratio": 0.01,
+    "quick_test": false,
+    "n_combinations": 1,
+    "data_processing_time": 5.931709289550781,
+    "evaluation_time": 22.714990615844727,
+    "best_model": {
+        "classifier_type": "knn",
+        "global_predictor_type": "knn",
+        "cluster_predictor_type": "knn",
+        "mean_distance": 336.4172306331955,
+        "median_distance": 268.32815729997475
+    }
+}

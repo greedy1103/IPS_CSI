@@ -3,11 +3,11 @@ import numpy as np
 import pandas as pd
 import logging
 import joblib
-from sklearn.cluster import KMeans
 from sklearn.metrics import mean_squared_error, accuracy_score
 from sklearn.decomposition import KernelPCA
 from .models.model_factory import create_classifier, create_predictor
 from .cluster_utils import find_optimal_clusters
+from .clustering import GridCluster, KMeansCluster
 import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from config import N_COMPONENTS
@@ -19,7 +19,8 @@ class ClusterRegression:
     
     def __init__(self, max_clusters=5, classifier_type='knn', global_predictor_type='knn',
                  cluster_predictor_type='knn', n_neighbors=5, auto_tune=False, 
-                 random_state=42, visualize=False, use_kernel_pca=True):
+                 random_state=42, visualize=False, use_kernel_pca=True,
+                 clustering_method='grid', dbscan_eps=0.5, dbscan_min_samples=5):
         """Khởi tạo mô hình"""
         # Tham số mô hình
         self.max_clusters = max_clusters
@@ -31,12 +32,15 @@ class ClusterRegression:
         self.random_state = random_state
         self.visualize = visualize
         self.use_kernel_pca = use_kernel_pca
-        self.kernel = 'cosine'  # Thay đổi kernel thành cosine
+        self.kernel = 'cosine'
         self.n_components = N_COMPONENTS
+        self.clustering_method = clustering_method
+        self.dbscan_eps = dbscan_eps
+        self.dbscan_min_samples = dbscan_min_samples
         
         # Các mô hình thành phần
         self.trained = False
-        self.coords_kmeans = None
+        self.coords_cluster = None
         self.classifier = None
         self.global_predictor = None
         self.cluster_predictors = {}
@@ -52,6 +56,18 @@ class ClusterRegression:
             return X.reshape(samples, channels * features)
         return X
     
+    def _create_cluster_model(self):
+        """Tạo mô hình phân cụm dựa trên phương pháp được chọn"""
+        if self.clustering_method == 'grid':
+            return GridCluster(n_clusters=self.max_clusters, random_state=self.random_state)
+        elif self.clustering_method == 'kmeans':
+            return KMeansCluster(n_clusters=self.max_clusters, random_state=self.random_state)
+        elif self.clustering_method == 'dbscan':
+            from sklearn.cluster import DBSCAN
+            return DBSCAN(eps=self.dbscan_eps, min_samples=self.dbscan_min_samples)
+        else:
+            raise ValueError(f"Phương pháp phân cụm không hợp lệ: {self.clustering_method}")
+            
     def fit(self, X, y=None, coords=None):
         """Huấn luyện mô hình"""
         try:
@@ -88,14 +104,12 @@ class ClusterRegression:
             # Xử lý đặc biệt cho coords có định dạng chuỗi 'AxB'
             coords_numeric = np.zeros((coords.shape[0], 2), dtype=float)
             for i in range(coords.shape[0]):
-                for j in range(min(coords.shape[1], 2)):  # Đảm bảo chỉ xử lý tối đa 2 chiều
+                for j in range(min(coords.shape[1], 2)):
                     val = coords[i, j]
                     if isinstance(val, (int, float)):
                         coords_numeric[i, j] = val
                     elif isinstance(val, str) and 'x' in val:
-                        # Xử lý chuỗi định dạng "AxB"
                         try:
-                            # Lấy số đầu tiên trước dấu 'x'
                             coords_numeric[i, j] = float(val.split('x')[0])
                             logger.debug(f"Đã chuyển đổi tọa độ '{val}' thành {coords_numeric[i, j]}")
                         except (ValueError, IndexError):
@@ -115,122 +129,46 @@ class ClusterRegression:
             # Xử lý dữ liệu và giảm chiều với kernel cosine
             X_reshaped = self.reshape_csi_data(X)
             
-            # Khởi tạo và áp dụng KernelPCA với số components cố định từ config
+            # Khởi tạo và áp dụng KernelPCA
             logger.info(f"Sử dụng KernelPCA với kernel='cosine', n_components={self.n_components}")
             self.kernel_pca = KernelPCA(n_components=self.n_components, kernel='cosine')
             X_pca = self.kernel_pca.fit_transform(X_reshaped)
             logger.info(f"Đã giảm chiều dữ liệu CSI từ {X_reshaped.shape[1]} xuống {X_pca.shape[1]} chiều")
             
-            # Huấn luyện bộ dự đoán toàn cục trước
+            # Huấn luyện bộ dự đoán toàn cục
             logger.info("Huấn luyện bộ dự đoán toàn cục")
             self.global_predictor = create_predictor(self.global_predictor_type, n_neighbors=5, random_state=self.random_state)
             self.global_predictor.train(X_pca, np.zeros(len(X_pca)), coords_numeric)
             
-            # Phân cụm tọa độ với số cụm cố định thay vì tìm tối ưu
-            # Số cụm cần đủ nhỏ để đảm bảo mỗi cụm có đủ dữ liệu
-            n_samples = len(coords_numeric)
-            # Tính số cụm dựa vào số lượng dữ liệu, đảm bảo mỗi cụm có ít nhất 5 mẫu
-            n_clusters = min(self.max_clusters, max(2, n_samples // 10))
-            logger.info(f"Sử dụng {n_clusters} cụm cho {n_samples} mẫu dữ liệu")
+            # Phân cụm tọa độ
+            logger.info(f"Sử dụng phương pháp phân cụm: {self.clustering_method}")
+            self.coords_cluster = self._create_cluster_model()
+            self.coords_cluster.fit(coords_numeric)
             
-            # THAY ĐỔI: Thay thế KMeans bằng phân vùng Grid để tránh vấn đề tất cả mẫu vào một cụm
-            # Phân chia tọa độ theo lưới hình chữ nhật thay vì dùng KMeans
-            
-            # Kiểm tra phương sai của tọa độ thay vì so sánh chính xác
-            x_var = np.var(coords_numeric[:, 0])
-            y_var = np.var(coords_numeric[:, 1])
-            x_min, x_max = np.min(coords_numeric[:, 0]), np.max(coords_numeric[:, 0])
-            y_min, y_max = np.min(coords_numeric[:, 1]), np.max(coords_numeric[:, 1])
-            
-            logger.info(f"Phạm vi tọa độ x: [{x_min}, {x_max}], y: [{y_min}, {y_max}]")
-            logger.info(f"Phương sai tọa độ: x_var={x_var:.2f}, y_var={y_var:.2f}")
-            
-            # Kiểm tra tọa độ đầu và cuối
-            logger.info(f"Mẫu tọa độ đầu: {coords_numeric[:5]}")
-            logger.info(f"Mẫu tọa độ cuối: {coords_numeric[-5:]}")
-            
-            # Sử dụng ngưỡng phương sai nhỏ để xác định tọa độ giống nhau
-            if x_var < 0.1 and y_var < 0.1:
-                logger.warning("Tất cả tọa độ gần như giống nhau (phương sai < 0.1). Tạo cụm ngẫu nhiên.")
-                # Nếu tất cả tọa độ giống nhau, chia ngẫu nhiên
-                np.random.seed(self.random_state)
-                coord_labels = np.random.randint(0, n_clusters, size=n_samples)
-                
-                # Tạo tọa độ ngẫu nhiên cho từng cụm
-                for i in range(n_clusters):
-                    # Tìm các mẫu thuộc cụm i
-                    cluster_indices = np.where(coord_labels == i)[0]
-                    if len(cluster_indices) > 0:
-                        # Tạo tọa độ ngẫu nhiên cho cụm này
-                        angle = 2 * np.pi * i / n_clusters  # Phân bố đều quanh vòng tròn
-                        radius = 100  # Bán kính
-                        # Tạo tọa độ cụm khác nhau dựa trên vị trí trên vòng tròn
-                        center_x = 540 + radius * np.cos(angle)
-                        center_y = 60 + radius * np.sin(angle)
-                        
-                        # Biến đổi tọa độ của cụm để phân biệt với các cụm khác
-                        for idx in cluster_indices:
-                            # Thêm nhiễu nhỏ để mỗi điểm khác nhau một chút
-                            noise_x = np.random.uniform(-10, 10)
-                            noise_y = np.random.uniform(-10, 10)
-                            coords_numeric[idx, 0] = center_x + noise_x
-                            coords_numeric[idx, 1] = center_y + noise_y
-                
-                logger.info("Đã tạo tọa độ ngẫu nhiên cho mỗi cụm để phân biệt chúng")
-            else:
-                # Tính toán số lưới theo mỗi chiều (căn bậc hai của số cụm)
-                grid_size = int(np.ceil(np.sqrt(n_clusters)))
-                
-                # Tính kích thước mỗi ô lưới
-                x_step = (x_max - x_min) / grid_size if x_max > x_min else 1
-                y_step = (y_max - y_min) / grid_size if y_max > y_min else 1
-                
-                # Khởi tạo nhãn
-                coord_labels = np.zeros(n_samples, dtype=int)
-                
-                # Phân cụm theo lưới
-                for i in range(n_samples):
-                    x, y = coords_numeric[i]
-                    # Tính vị trí lưới (bị chặn ở grid_size-1 để tránh vượt quá)
-                    x_grid = min(grid_size-1, int((x - x_min) / x_step)) if x_step > 0 else 0
-                    y_grid = min(grid_size-1, int((y - y_min) / y_step)) if y_step > 0 else 0
-                    # Chuyển vị trí lưới 2D thành nhãn 1D
-                    label = x_grid + y_grid * grid_size
-                    # Đảm bảo nhãn không vượt quá n_clusters
-                    coord_labels[i] = min(label, n_clusters-1)
-                
-                # Đảm bảo nhãn là các số nguyên liên tiếp từ 0 đến n_clusters-1
-                unique_labels = np.unique(coord_labels)
-                label_map = {old_label: new_label for new_label, old_label in enumerate(unique_labels)}
-                
-                # Áp dụng ánh xạ nhãn
-                for i in range(n_samples):
-                    coord_labels[i] = label_map[coord_labels[i]]
-                    
-                logger.info("Đã phân cụm dựa trên lưới tọa độ")
-            
-            # Cập nhật số cụm thực tế
+            # Lấy nhãn cụm
+            coord_labels = self.coords_cluster.labels_
             self.n_clusters = len(np.unique(coord_labels))
             logger.info(f"Số cụm thực tế sau khi phân chia: {self.n_clusters}")
             
             # Hiển thị thông tin về sự phân bố của các cụm
             for i in range(self.n_clusters):
                 cluster_count = np.sum(coord_labels == i)
-                cluster_percentage = cluster_count / n_samples * 100
+                cluster_percentage = cluster_count / len(coord_labels) * 100
                 logger.info(f"Cụm {i}: {cluster_count} mẫu ({cluster_percentage:.1f}%)")
             
             # Huấn luyện bộ phân loại cho cụm tọa độ
             logger.info("Huấn luyện bộ phân loại cụm tọa độ")
             self.classifier = create_classifier(self.classifier_type, n_neighbors=5, random_state=self.random_state)
-            self.classifier.fit(X_pca, coord_labels)  # Phân loại dữ liệu PCA vào các cụm tọa độ
+            self.classifier.fit(X_pca, coord_labels)
             
             # Huấn luyện bộ dự đoán cho từng cụm tọa độ
-            logger.info(f"Huấn luyện bộ dự đoán cho {n_clusters} cụm tọa độ")
-            for i in range(n_clusters):
+            logger.info(f"Huấn luyện bộ dự đoán cho {self.n_clusters} cụm tọa độ")
+            for i in range(self.n_clusters):
                 idx = np.where(coord_labels == i)[0]
-                if len(idx) < 5: 
-                    logger.warning(f"Cụm {i} chỉ có {len(idx)} mẫu, không đủ để huấn luyện")
-                    continue
+                # Bỏ điều kiện kiểm tra này
+                # if len(idx) < 5: 
+                #     logger.warning(f"Cụm {i} chỉ có {len(idx)} mẫu, không đủ để huấn luyện")
+                #     continue
                 
                 X_cluster = X_pca[idx]
                 coords_cluster = coords_numeric[idx]
@@ -251,7 +189,7 @@ class ClusterRegression:
             # Cập nhật trạng thái mô hình
             self.valid_clusters = list(self.cluster_predictors.keys())
             self.trained = True
-            logger.info(f"Hoàn tất huấn luyện với {len(self.valid_clusters)}/{n_clusters} cụm hợp lệ")
+            logger.info(f"Hoàn tất huấn luyện với {len(self.valid_clusters)}/{self.n_clusters} cụm hợp lệ")
             
             return self
             
@@ -260,13 +198,13 @@ class ClusterRegression:
             return self
             
     def predict(self, X, return_details=False):
-        """Dự đoán tọa độ theo quy trình giống hình test phase"""
+        """Dự đoán tọa độ với logic cải tiến kết hợp local và global"""
         try:
             if not self.trained:
                 logger.error("Mô hình chưa được huấn luyện")
                 return None
             
-            # Xử lý dữ liệu
+            # Xử lý dữ liệu đầu vào
             if isinstance(X, pd.DataFrame):
                 X = X.values
             elif isinstance(X, list):
@@ -281,10 +219,10 @@ class ClusterRegression:
             X_pca = self.kernel_pca.transform(X_reshaped)
             
             # BƯỚC 1: Sử dụng Classifier để lấy nhãn cục bộ (C_local)
-            local_labels = self.classifier.predict(X_pca)  # C_local
+            local_labels = self.classifier.predict(X_pca)
             
             # BƯỚC 2: Sử dụng Global Estimator để dự đoán tọa độ toàn cục
-            global_coords = self.global_predictor.predict(X_pca)  # (x_global, y_global)
+            global_coords = self.global_predictor.predict(X_pca)
             
             # Đảm bảo global_coords là mảng numpy
             if isinstance(global_coords, list):
@@ -294,57 +232,41 @@ class ClusterRegression:
             if len(global_coords.shape) == 1 and len(X_pca) == 1:
                 global_coords = global_coords.reshape(1, -1)
             
-            # Xác định kích thước tọa độ (2D hoặc 3D)
+            # Xác định kích thước tọa độ
             coord_dim = global_coords.shape[1] if len(global_coords.shape) > 1 else global_coords.size
             logger.info(f"Kích thước tọa độ dự đoán: {coord_dim}D")
             
-            # BƯỚC 3: Thay thế phân cụm KMeans bằng phương pháp phân vùng grid tương tự fit()
-            global_labels = np.zeros(len(global_coords), dtype=int)
+            # Tính trung vị của global predictions
+            global_median = np.median(global_coords, axis=0)
             
-            # Kiểm tra xem chúng ta có cluster_coords đã được tạo từ fit() không
+            # BƯỚC 3: Xác định nhãn global
+            global_labels = np.zeros(len(global_coords), dtype=int)
             if len(self.cluster_coords) > 0:
-                # Với từng tọa độ dự đoán, tìm cụm gần nhất dựa trên tọa độ trung bình của cụm
                 for i in range(len(global_coords)):
                     min_dist = float('inf')
                     best_cluster = 0
-                    
                     for cluster_id, cluster_info in self.cluster_coords.items():
                         cluster_mean = cluster_info['mean']
-                        # Đảm bảo kích thước phù hợp cho việc tính toán khoảng cách
                         if len(global_coords[i]) != len(cluster_mean):
-                            # Trường hợp kích thước khác nhau, chỉ so sánh kích thước chung nhỏ nhất
                             min_dim = min(len(global_coords[i]), len(cluster_mean))
                             dist = np.sqrt(np.sum((global_coords[i][:min_dim] - cluster_mean[:min_dim]) ** 2))
                         else:
-                            # Tính khoảng cách Euclidean
                             dist = np.sqrt(np.sum((global_coords[i] - cluster_mean) ** 2))
-                        
                         if dist < min_dist:
                             min_dist = dist
                             best_cluster = cluster_id
-                    
                     global_labels[i] = best_cluster
             else:
-                # Nếu không có thông tin cluster_coords, sử dụng nhãn cục bộ
                 logger.warning("Không có thông tin về cụm tọa độ, sử dụng nhãn cục bộ làm nhãn toàn cục")
                 global_labels = local_labels.copy()
-            
-            # Thống kê nhãn phân loại
-            match_count = np.sum(local_labels == global_labels)
-            match_percentage = match_count / len(local_labels) * 100
-            logger.info(f"Tỷ lệ nhãn cục bộ và toàn cục khớp nhau: {match_percentage:.2f}% ({match_count}/{len(local_labels)})")
-            
-            # Chi tiết hơn về phân bố các nhãn
-            local_dist = np.bincount(local_labels)
-            global_dist = np.bincount(global_labels)
-            logger.info(f"Phân bố nhãn cục bộ: {local_dist}")
-            logger.info(f"Phân bố nhãn toàn cục: {global_dist}")
             
             # Kết hợp dự đoán
             n_samples = len(X_pca)
             predictions = np.zeros((n_samples, coord_dim))
             details = {'local_labels': [], 'global_labels': [], 'match': [], 'selected': []} if return_details else None
-            
+            # Thêm log ở đây, trước khi bắt đầu tính toán theo phương pháp mới
+            logger.info("Đang sử dụng phương pháp dự đoán mới: So sánh sai số local/global và điều chỉnh theo ngưỡng")
+           
             for i in range(n_samples):
                 local_label = local_labels[i]
                 global_label = global_labels[i]
@@ -378,31 +300,65 @@ class ClusterRegression:
                             logger.warning(f"Kích thước tọa độ cục bộ không khớp: {len(local_coords)} vs {coord_dim}")
                             # Điều chỉnh kích thước
                             if len(local_coords) < coord_dim:
-                                # Mở rộng mảng nếu cần
                                 local_coords = np.pad(local_coords, (0, coord_dim - len(local_coords)), 'constant')
                             else:
-                                # Cắt bớt mảng nếu cần
                                 local_coords = local_coords[:coord_dim]
                     except Exception as e:
                         logger.warning(f"Lỗi khi dự đoán cục bộ cho nhãn {local_label}: {str(e)}")
                         local_coords = global_coords[i]
                 else:
-                    # Nếu không có bộ dự đoán cho cụm, sử dụng tọa độ toàn cục
                     local_coords = global_coords[i]
                 
-                # BƯỚC 4: So sánh C_local và C_global
+                # BƯỚC 4: So sánh C_local và C_global với logic mới
                 if local_label == global_label and local_label in self.valid_clusters:
-                    # Nếu hai nhãn khớp nhau, sử dụng tọa độ cục bộ
-                    predictions[i] = local_coords
+                    # Tính sai số của cả local và global so với trung tâm cụm
+                    local_error = np.linalg.norm(local_coords - self.cluster_coords[local_label]['mean'])
+                    global_error = np.linalg.norm(global_coords[i] - self.cluster_coords[local_label]['mean'])
+                    
+                    # Chọn dự đoán có sai số nhỏ hơn
+                    if local_error < global_error:
+                        predictions[i] = local_coords
+                        if return_details:
+                            details['selected'].append('local')
+                    else:
+                        predictions[i] = global_coords[i]
+                        if return_details:
+                            details['selected'].append('global')
+                    
                     if return_details:
                         details['match'].append(True)
-                        details['selected'].append('local')
                 else:
-                    # Nếu không khớp, lấy trung bình của hai tọa độ
-                    predictions[i] = (local_coords + global_coords[i]) / 2
+                    # Xử lý khi nhãn khác nhau
+                    # Kiểm tra global prediction với ngưỡng
+                    global_dist = np.linalg.norm(global_coords[i] - global_median)
+                    global_threshold = np.median([np.linalg.norm(coord - global_median) for coord in global_coords])
+                    
+                    if global_dist > global_threshold:
+                        # Nếu global prediction vượt ngưỡng, điều chỉnh về gần trung vị hơn
+                        global_adjusted = (global_coords[i] + global_median) / 2
+                    else:
+                        global_adjusted = global_coords[i]
+                    
+                    # Kiểm tra local prediction với ngưỡng
+                    if local_label in self.valid_clusters:
+                        local_mean = self.cluster_coords[local_label]['mean']
+                        local_dist = np.linalg.norm(local_coords - local_mean)
+                        local_threshold = np.median(self.cluster_coords[local_label]['std'])
+                        
+                        if local_dist > local_threshold:
+                            # Nếu local prediction vượt ngưỡng, điều chỉnh về gần trung bình cụm hơn
+                            local_adjusted = (local_coords + local_mean) / 2
+                        else:
+                            local_adjusted = local_coords
+                    else:
+                        local_adjusted = local_coords
+                    
+                    # Kết hợp các dự đoán đã điều chỉnh
+                    predictions[i] = (local_adjusted + global_adjusted) / 2
+                    
                     if return_details:
                         details['match'].append(False)
-                        details['selected'].append('average')
+                        details['selected'].append('adjusted_average')
             
             return (predictions, details) if return_details else predictions
             
@@ -496,7 +452,7 @@ class ClusterRegression:
             
             # Phân tích theo nhóm dự đoán
             cluster_idx = np.where(np.array(details['selected']) == 'local')[0]
-            global_idx = np.where(np.array(details['selected']) == 'average')[0]
+            global_idx = np.where(np.array(details['selected']) == 'global')[0]
             
             if len(cluster_idx) > 0:
                 metrics['cluster'] = {
@@ -535,12 +491,15 @@ class ClusterRegression:
                 'random_state': self.random_state,
                 'use_kernel_pca': self.use_kernel_pca,
                 'kernel': self.kernel,
-                'n_components': self.n_components
+                'n_components': self.n_components,
+                'clustering_method': self.clustering_method,
+                'dbscan_eps': self.dbscan_eps,
+                'dbscan_min_samples': self.dbscan_min_samples
             }
             joblib.dump(config, os.path.join(base_path, "config.pkl"))
             
             # Lưu các mô hình
-            joblib.dump(self.coords_kmeans, os.path.join(base_path, "coords_kmeans.pkl"))
+            joblib.dump(self.coords_cluster, os.path.join(base_path, "coords_cluster.pkl"))
             joblib.dump(self.kernel_pca, os.path.join(base_path, "kernel_pca.pkl"))
             joblib.dump(self.cluster_coords, os.path.join(base_path, "cluster_coords.pkl"))
             
@@ -572,7 +531,7 @@ class ClusterRegression:
             instance = cls(**config)
             
             # Tải các mô hình
-            instance.coords_kmeans = joblib.load(os.path.join(base_path, "coords_kmeans.pkl"))
+            instance.coords_cluster = joblib.load(os.path.join(base_path, "coords_cluster.pkl"))
             instance.kernel_pca = joblib.load(os.path.join(base_path, "kernel_pca.pkl"))
             instance.cluster_coords = joblib.load(os.path.join(base_path, "cluster_coords.pkl"))
             

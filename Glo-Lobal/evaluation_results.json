@@ -1,0 +1,27 @@
+[
+  {
+    "mean_distance": 300.26887240470904,
+    "median_distance": 321.03083964005697,
+    "max_distance": 695.8893015415598,
+    "min_distance": 24.73863375370592,
+    "std_distance": 138.2359189781853,
+    "cluster": {
+      "count": 954,
+      "percentage": 8.353033884948777,
+      "mean_distance": 319.53939955071394
+    },
+    "global": {
+      "count": 728,
+      "percentage": 6.374222922686279,
+      "mean_distance": 210.7486937671154
+    },
+    "model": {
+      "classifier_type": "knn",
+      "global_predictor_type": "rf",
+      "cluster_predictor_type": "rf",
+      "clustering_method": "kmeans",
+      "train_time": 2.9774904251098633,
+      "eval_time": 337.9391357898712
+    }
+  }
+]

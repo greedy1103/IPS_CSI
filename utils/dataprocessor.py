@@ -26,7 +26,7 @@ class DataPreprocessor:
             Seed ngẫu nhiên.
         """
         self.random_state = random_state
-        self.data_dir = os.path.join('C:', os.sep, 'Users', 'Dell', 'DATN', 'Final', 'data')
+        self.data_dir = os.path.join('C:', os.sep, 'Users', 'Dell', 'DATN', 'IPS_CSI', 'data')
     
     def load_data(self, subset_ratio=1):
         """
@@ -47,6 +47,10 @@ class DataPreprocessor:
             Nhãn cho tập huấn luyện.
         y_test : pandas.DataFrame
             Nhãn cho tập kiểm tra.
+        coords_train : numpy.ndarray
+            Tọa độ cho tập huấn luyện.
+        coords_test : numpy.ndarray
+            Tọa độ cho tập kiểm tra.
         """
         try:
             # Đường dẫn train và test
@@ -85,11 +89,11 @@ class DataPreprocessor:
             
             logger.info(f"Đã tải: {X_train.shape[0]} mẫu train, {X_test.shape[0]} mẫu test")
             
-            return X_train, X_test, y_train, y_test
+            return X_train, X_test, y_train, y_test, train_coords, test_coords
             
         except Exception as e:
             logger.error(f"Lỗi khi tải dữ liệu: {str(e)}")
-            return None, None, None, None
+            return None, None, None, None, None, None
     
     def _load_npz_data(self, data_dir, subset_ratio=1.0):
         """
