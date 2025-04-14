@@ -1,121 +1,88 @@
 # Mô hình dự đoán vị trí sử dụng các phương pháp khác nhau
 
-Dự án này thực hiện việc dự đoán tọa độ dựa trên dữ liệu CSI, với khả năng thử nghiệm nhiều phương pháp khác nhau cho bộ phân loại cluster và bộ dự đoán tọa độ.
+Dự án này thực hiện việc dự đoán tọa độ dựa trên dữ liệu CSI, với hai công cụ chính:
+1. `regressor.py`: Huấn luyện và lưu một mô hình cụ thể
+2. `evaluate_models.py`: So sánh hiệu suất của nhiều mô hình khác nhau
 
-## Cấu trúc dự án
+## Huấn luyện mô hình (regressor.py)
 
-```
-Final/
-│
-├── Glo-Lobal/                          # Thư mục chứa mã nguồn chính
-│   ├── regressor.py                    # Phiên bản ban đầu của mô hình
-│   ├── evaluate_models.py              # Script đánh giá nhiều mô hình
-│   └── README.md                       # Tài liệu hướng dẫn
-│
-├── utils/                              # Thư mục chứa các tiện ích
-│   ├── models/                         # Thư mục chứa các lớp mô hình
-│   │   ├── __init__.py
-│   │   ├── base_models.py              # Lớp cơ sở cho các mô hình
-│   │   ├── classifiers.py              # Các bộ phân loại cluster
-│   │   ├── predictors.py               # Các bộ dự đoán tọa độ
-│   │   └── model_factory.py            # Factory để tạo mô hình
-│   │
-│   ├── cluster_utils.py                # Tiện ích phân cụm
-│   ├── dataprocessor.py                # Bộ xử lý dữ liệu
-│   └── cluster_regression.py           # Mô hình hồi quy theo cluster
-│
-└── config.py                           # Cấu hình chung
-```
-
-## Cài đặt
-
-Cài đặt các thư viện cần thiết:
+Script này dùng để huấn luyện và lưu một mô hình cụ thể với các tham số đã chọn.
 
 ```bash
-pip install numpy pandas scikit-learn torch matplotlib seaborn
+# Huấn luyện và lưu mô hình
+python regressor.py --classifier_type knn --global_predictor_type rf --cluster_predictor_type rf --save_model
+
+# Tải và sử dụng mô hình đã lưu
+python regressor.py --load_model --model_path path/to/model
 ```
 
-Để sử dụng XGBoost (tùy chọn):
-```bash
-pip install xgboost
-```
+Các tham số chính:
+- `--classifier_type`: Loại bộ phân loại cluster (`knn`, `rf`, `svm`, `gb`)
+- `--global_predictor_type`: Loại bộ dự đoán tọa độ toàn cục
+- `--cluster_predictor_type`: Loại bộ dự đoán tọa độ cho từng cluster
+- `--max_clusters`: Số lượng cụm (mặc định: 5)
+- `--save_model`: Lưu mô hình sau khi huấn luyện
+- `--load_model`: Tải mô hình đã lưu
+- `--model_path`: Đường dẫn để lưu/tải mô hình
+- `--visualize`: Hiển thị biểu đồ kết quả
+- `--save_results`: Lưu kết quả dự đoán
 
-## Sử dụng
+## So sánh các mô hình (evaluate_models.py)
 
-### Chạy mô hình với một phương pháp cụ thể
-
-```bash
-python regressor.py --classifier_type knn --global_predictor_type knn --cluster_predictor_type knn --max_clusters 5
-```
-
-Các tham số có thể sử dụng:
-- `--classifier_type`: Loại bộ phân loại cluster (`knn`, `rf`, `svm`, `gb`, `mlp`)
-- `--global_predictor_type`: Loại bộ dự đoán tọa độ toàn cục (`knn`, `rf`, `svr`, `gb`, `mlp`)
-- `--cluster_predictor_type`: Loại bộ dự đoán tọa độ cho từng cluster (`knn`, `rf`, `svr`, `gb`, `mlp`)
-- `--n_neighbors`: Số lượng neighbors cho KNN
-- `--auto_tune`: Tự động tìm giá trị n_neighbors tối ưu
-- `--max_clusters`: Số lượng cụm tối đa để kiểm tra
-- `--visualize`: Hiển thị biểu đồ phân cụm
-
-### Đánh giá và so sánh nhiều phương pháp
+Script này dùng để thử nghiệm và so sánh hiệu suất của nhiều mô hình khác nhau.
 
 ```bash
-python evaluate_models.py --max_clusters 5 --n_neighbors 5
+# So sánh nhanh các mô hình phổ biến
+python evaluate_models.py --quick_test
+
+# So sánh các mô hình cụ thể
+python evaluate_models.py --classifier_types knn rf --predictor_types knn rf svr
 ```
 
-Đánh giá nhanh một số mô hình phổ biến:
+Các tham số chính:
+- `--classifier_types`: Danh sách các bộ phân loại cần thử nghiệm
+- `--predictor_types`: Danh sách các bộ dự đoán cần thử nghiệm
+- `--clustering_method`: Phương pháp phân cụm (`grid`, `kmeans`, `dbscan`)
+- `--quick_test`: Chỉ đánh giá một số mô hình phổ biến
+- `--save_results`: Lưu kết quả so sánh
+- `--visualize`: Hiển thị biểu đồ so sánh
+
+## Quy trình sử dụng đề xuất
+
+1. Dùng `evaluate_models.py` để tìm tổ hợp mô hình tốt nhất:
 ```bash
-python evaluate_models.py --max_clusters 5 --quick_test
+python evaluate_models.py --classifier_types knn rf svm --predictor_types knn rf svr --save_results
 ```
 
-Đánh giá một tập hợp cụ thể các mô hình:
+2. Sau khi xác định được tổ hợp tốt nhất, dùng `regressor.py` để huấn luyện và lưu mô hình đó:
 ```bash
-python evaluate_models.py --max_clusters 5 --classifier_types knn rf gb --global_predictor_types knn svr gb --cluster_predictor_types knn svr gb
+python regressor.py --classifier_type knn --global_predictor_type rf --cluster_predictor_type rf --save_model
 ```
-
-Script này sẽ:
-1. Chạy tất cả các kết hợp của bộ phân loại và bộ dự đoán
-2. Tạo bảng so sánh kết quả
-3. Vẽ biểu đồ so sánh
-4. Xác định mô hình tốt nhất
 
 ## Các phương pháp được hỗ trợ
 
 ### Bộ phân loại cluster
-
-- `KNNClusterClassifier`: Sử dụng KNN để phân loại cluster
-- `RandomForestClusterClassifier`: Sử dụng Random Forest để phân loại cluster
-- `SVMClusterClassifier`: Sử dụng SVM để phân loại cluster
-- `GBClusterClassifier`: Sử dụng Gradient Boosting để phân loại cluster
-- `XGBClusterClassifier`: Sử dụng XGBoost để phân loại cluster (yêu cầu cài đặt XGBoost)
+- `knn`: K-Nearest Neighbors
+- `rf`: Random Forest
+- `svm`: Support Vector Machine
+- `gb`: Gradient Boosting
 
 ### Bộ dự đoán tọa độ
+- `knn`: K-Nearest Neighbors Regressor
+- `rf`: Random Forest Regressor
+- `svr`: Support Vector Regression
+- `gb`: Gradient Boosting Regressor
 
-- `KNNCoordinatePredictor`: Sử dụng KNN để dự đoán tọa độ
-- `RFCoordinatePredictor`: Sử dụng Random Forest để dự đoán tọa độ
-- `SVRCoordinatePredictor`: Sử dụng Support Vector Regression để dự đoán tọa độ
-- `GBCoordinatePredictor`: Sử dụng Gradient Boosting để dự đoán tọa độ
+## Kết quả và đầu ra
 
-## Mở rộng
+### Từ regressor.py
+- Mô hình đã huấn luyện (nếu dùng --save_model)
+- Kết quả dự đoán và đánh giá
+- Biểu đồ trực quan (nếu dùng --visualize)
 
-Để thêm một phương pháp mới:
+### Từ evaluate_models.py
+- Bảng so sánh các mô hình (`model_comparison.csv`)
+- Biểu đồ so sánh (`model_comparison.png`)
+- Tổng hợp kết quả (`evaluation_results.json`)
+- Thông tin về mô hình tốt nhất
 
-1. Tạo lớp mới trong `utils/models/classifiers.py` hoặc `utils/models/predictors.py`
-2. Thêm phương pháp vào factory trong `utils/models/model_factory.py`
-3. Cập nhật danh sách lựa chọn trong `regressor.py` và `evaluate_models.py`
-
-## Xử lý lỗi phổ biến
-
-- **Feature names warning**: Cảnh báo về tên đặc trưng đã được xử lý trong code và không ảnh hưởng đến kết quả.
-- **Lỗi train thiếu tham số**: Đảm bảo rằng dữ liệu đầu vào có cả nhãn và tọa độ khi gọi `train()`.
-- **Lỗi không tìm thấy bộ dự đoán**: Kiểm tra lại tham số `--classifier_type`, `--global_predictor_type`, và `--cluster_predictor_type`.
-
-## Kết quả
-
-Sau khi chạy đánh giá, kết quả sẽ được lưu trong thư mục `results/model_comparison`:
-- `model_comparison.csv`: Bảng so sánh các mô hình
-- `model_comparison.png`: Biểu đồ so sánh
-- `model_comparison_summary.json`: Tổng hợp kết quả và thông tin về mô hình tốt nhất
-- `intermediate_results.json`: Kết quả trung gian (có thể dùng để tiếp tục đánh giá)
-
-hello

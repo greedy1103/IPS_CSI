@@ -74,6 +74,8 @@ class KNNCoordinatePredictor(BaseCoordinatePredictor):
         numpy.ndarray
             Tọa độ được dự đoán
         """
+        X = np.asarray(X)
+        
         if isinstance(X, np.ndarray) and len(X.shape) == 1:
             X = X.reshape(1, -1)
             
@@ -187,6 +189,8 @@ class RFCoordinatePredictor(BaseCoordinatePredictor):
         numpy.ndarray
             Tọa độ được dự đoán
         """
+        X = np.asarray(X)
+        
         if isinstance(X, np.ndarray) and len(X.shape) == 1:
             X = X.reshape(1, -1)
             
@@ -306,6 +310,8 @@ class SVRCoordinatePredictor(BaseCoordinatePredictor):
         numpy.ndarray
             Tọa độ được dự đoán
         """
+        X = np.asarray(X)
+        
         if self.model is None or len(self.model) == 0:
             raise ValueError("Mô hình chưa được huấn luyện")
             
@@ -441,6 +447,8 @@ class GBCoordinatePredictor(BaseCoordinatePredictor):
         numpy.ndarray
             Tọa độ được dự đoán
         """
+        X = np.asarray(X)
+        
         if self.model is None or len(self.model) == 0:
             raise ValueError("Mô hình chưa được huấn luyện")
             

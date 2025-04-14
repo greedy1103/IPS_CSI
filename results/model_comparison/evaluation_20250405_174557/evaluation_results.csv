@@ -1,2 +1,0 @@
-classifier_type,global_predictor_type,cluster_predictor_type,train_time,eval_time,mean_distance,median_distance,std_distance,max_distance,min_distance
-knn,knn,knn,0.09778547286987305,21.939324140548706,338.1062650346245,268.32815729997475,204.4978682789253,873.6131867136622,16.97056274847714

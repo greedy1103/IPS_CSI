@@ -1,2 +1,0 @@
-classifier_type,global_predictor_type,cluster_predictor_type,clustering_method,mean_distance,median_distance
-knn,knn,knn,kmeans,332.52612304897406,268.32815729997475

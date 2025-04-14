@@ -44,7 +44,24 @@ def parse_arguments():
     argparse.Namespace
         Các tham số từ dòng lệnh
     """
-    parser = argparse.ArgumentParser(description='Dự đoán vị trí từ dữ liệu CSI')
+    parser = argparse.ArgumentParser(description='Train và đánh giá mô hình hồi quy theo cluster')
+    
+    # Thêm các tham số phân cụm mới
+    parser.add_argument('--clustering_method', type=str, default='kmeans',
+                        choices=['grid', 'kmeans', 'dbscan'],
+                        help='Phương pháp phân cụm (grid/kmeans/dbscan)')
+    parser.add_argument('--dbscan_eps', type=float, default=0.5,
+                        help='Khoảng cách tối đa cho DBSCAN')
+    parser.add_argument('--dbscan_min_samples', type=int, default=5,
+                        help='Số mẫu tối thiểu cho DBSCAN')
+    
+    # Các tham số hiện có
+    parser.add_argument('--num_clusters', type=int, default=5, 
+                        help='Số lượng cụm (clusters)')
+    parser.add_argument('--no_optimize', action='store_true', 
+                        help='Tắt tối ưu hóa tham số n_neighbors')
+    parser.add_argument('--n_neighbors', type=int, default=5, 
+                        help='Giá trị mặc định cho n_neighbors')
     
     # Tham số dữ liệu
     parser.add_argument('--data_dir', type=str, default=DATA_DIR,
@@ -57,10 +74,6 @@ def parse_arguments():
                         help='Loại bộ dự đoán toàn cục')
     parser.add_argument('--cluster_predictor_type', type=str, default=DEFAULT_CLUSTER_PREDICTOR_TYPE,
                         help='Loại bộ dự đoán cho mỗi cụm')
-    parser.add_argument('--max_clusters', type=int, default=DEFAULT_MAX_CLUSTERS,
-                        help='Số lượng cụm tối đa cho phân cụm')
-    parser.add_argument('--n_neighbors', type=int, default=DEFAULT_N_NEIGHBORS,
-                        help='Số lượng láng giềng cho KNN')
     
     # Tham số huấn luyện và đánh giá
     parser.add_argument('--subset_ratio', type=float, default=1.0, 
@@ -114,7 +127,7 @@ def main():
         # Xử lý dữ liệu
         logger.info("Đang xử lý dữ liệu...")
         start_time = time.time()
-        X_train, X_test, y_train, y_test, coords_train, coords_test = processor.load_data()
+        X_train, X_test, y_train, y_test, coords_train, coords_test = processor.load_data(subset_ratio=args.subset_ratio)
         data_processing_time = time.time() - start_time
         logger.info(f"Xử lý dữ liệu hoàn tất trong {data_processing_time:.2f} giây")
         
@@ -125,20 +138,18 @@ def main():
         logger.info(f"Dữ liệu huấn luyện: {X_train.shape}, Dữ liệu kiểm tra: {X_test.shape}")
         logger.info(f"Tọa độ huấn luyện: {coords_train.shape}, Tọa độ kiểm tra: {coords_test.shape}")
         
-        # Khởi tạo hoặc tải mô hình
-        if args.load_model and args.model_path:
-            logger.info(f"Đang tải mô hình từ {args.model_path}...")
-            model = ClusterRegression.load_models(args.model_path)
-            logger.info("Tải mô hình thành công!")
-        else:
-            logger.info("Khởi tạo mô hình mới...")
-            model = ClusterRegression(
-                max_clusters=args.max_clusters,
-                classifier_type=args.classifier_type,
-                global_predictor_type=args.global_predictor_type,
-                cluster_predictor_type=args.cluster_predictor_type,
-                random_state=args.random_state
-            )
+        # Khởi tạo mô hình với các tham số phân cụm
+        model = ClusterRegression(
+            max_clusters=args.num_clusters,
+            classifier_type=args.classifier_type,
+            global_predictor_type=args.global_predictor_type,
+            cluster_predictor_type=args.cluster_predictor_type,
+            random_state=args.random_state,
+            # Thêm các tham số phân cụm
+            clustering_method=args.clustering_method,
+            dbscan_eps=args.dbscan_eps,
+            dbscan_min_samples=args.dbscan_min_samples
+        )
         
         # Huấn luyện mô hình nếu không tải mô hình
         if not args.load_model or not args.model_path:

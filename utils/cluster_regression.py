@@ -449,31 +449,56 @@ class ClusterRegression:
             logger.info(f"Sai số trung vị: {metrics['median_distance']:.2f} cm")
             logger.info(f"Sai số lớn nhất: {metrics['max_distance']:.2f} cm")
             logger.info(f"Sai số nhỏ nhất: {metrics['min_distance']:.2f} cm")
-            
-            # Phân tích theo nhóm dự đoán
-            cluster_idx = np.where(np.array(details['selected']) == 'local')[0]
-            global_idx = np.where(np.array(details['selected']) == 'global')[0]
-            
-            if len(cluster_idx) > 0:
-                metrics['cluster'] = {
-                    'count': len(cluster_idx),
-                    'percentage': len(cluster_idx) / len(distances) * 100,
-                    'mean_distance': np.mean(distances[cluster_idx])
+
+            # --- Phân tích dựa trên KHỚP/KHÔNG KHỚP NHÃN (details['match']) ---
+            matches_np = np.array(details['match']) # Lấy danh sách True/False
+            total_samples = len(distances) # Tổng số mẫu test
+
+            # Nhóm KHỚP NHÃN (match == True)
+            match_idx = np.where(matches_np == True)[0]
+            num_matching = len(match_idx)
+            if num_matching > 0:
+                percent_matching = num_matching / total_samples * 100
+                mean_dist_matching = np.mean(distances[match_idx])
+                # Log đúng tên và đúng số lượng
+                logger.info(f"Sai số trung bình cho mẫu KHỚP nhãn ({num_matching} mẫu, {percent_matching:.1f}%): {mean_dist_matching:.2f} cm")
+                # Lưu metric nếu cần
+                metrics['matching_samples'] = {
+                    'count': num_matching,
+                    'percentage': percent_matching,
+                    'mean_distance': mean_dist_matching
                 }
-                logger.info(f"Sai số trung bình cho mẫu khớp nhãn ({len(cluster_idx)} mẫu, {metrics['cluster']['percentage']:.1f}%): {metrics['cluster']['mean_distance']:.2f} cm")
-            
-            if len(global_idx) > 0:
-                metrics['global'] = {
-                    'count': len(global_idx),
-                    'percentage': len(global_idx) / len(distances) * 100,
-                    'mean_distance': np.mean(distances[global_idx])
+
+            # Nhóm KHÔNG KHỚP NHÃN (match == False)
+            non_match_idx = np.where(matches_np == False)[0]
+            num_non_matching = len(non_match_idx) # Sẽ đếm đúng số lượng không khớp
+            if num_non_matching > 0:
+                percent_non_matching = num_non_matching / total_samples * 100 # Sẽ tính đúng phần trăm
+                mean_dist_non_matching = np.mean(distances[non_match_idx]) # Tính trên tất cả các mẫu không khớp
+                # Log đúng tên và đúng số lượng
+                logger.info(f"Sai số trung bình cho mẫu KHÔNG KHỚP nhãn ({num_non_matching} mẫu, {percent_non_matching:.1f}%): {mean_dist_non_matching:.2f} cm")
+                # Lưu metric nếu cần
+                metrics['non_matching_samples'] = {
+                    'count': num_non_matching,
+                    'percentage': percent_non_matching,
+                    'mean_distance': mean_dist_non_matching
                 }
-                logger.info(f"Sai số trung bình cho mẫu không khớp nhãn ({len(global_idx)} mẫu, {metrics['global']['percentage']:.1f}%): {metrics['global']['mean_distance']:.2f} cm")
-            
+
+            # (Tùy chọn) Log thêm về cách dự đoán cuối cùng được chọn ('selected')
+            if 'selected' in details:
+                selected_local_idx = np.where(np.array(details['selected']) == 'local')[0]
+                selected_global_idx = np.where(np.array(details['selected']) == 'global')[0]
+                selected_average_idx = np.where(np.array(details['selected']) == 'adjusted_average')[0]
+                logger.info(f"   (Chi tiết lựa chọn dự đoán cuối: Local={len(selected_local_idx)}, Global={len(selected_global_idx)}, Average={len(selected_average_idx)})")
+
+
             return metrics
-            
+
         except Exception as e:
             logger.error(f"Lỗi khi đánh giá: {str(e)}")
+            # Log thêm traceback để debug
+            import traceback
+            logger.error(traceback.format_exc())
             return None
     
     def save_models(self, base_path):
