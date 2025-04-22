@@ -1,0 +1,17 @@
+{
+    "mean_distance": 301.828920691635,
+    "median_distance": 271.51573098419954,
+    "max_distance": 565.6084561847325,
+    "min_distance": 120.89219593583093,
+    "std_distance": 110.61698338580972,
+    "matching_samples": {
+        "count": 49,
+        "percentage": 42.98245614035088,
+        "mean_distance": 261.8686295861368
+    },
+    "non_matching_samples": {
+        "count": 65,
+        "percentage": 57.01754385964912,
+        "mean_distance": 331.9528324480874
+    }
+}

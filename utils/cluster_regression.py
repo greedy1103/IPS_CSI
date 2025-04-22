@@ -369,72 +369,64 @@ class ClusterRegression:
             return None
     
     def evaluate(self, X_test, coords_test):
-        """Đánh giá mô hình"""
+        """Đánh giá mô hình và trả về metrics, dự đoán, tọa độ thực tế."""
         try:
             if not self.trained:
                 logger.error("Mô hình chưa được huấn luyện")
-                return None
-            
+                # Trả về None cho tất cả nếu chưa huấn luyện
+                return None, None, None
+
             # Đảm bảo dữ liệu là numpy arrays
-            if isinstance(X_test, pd.DataFrame):
-                X_test = X_test.values
-            elif isinstance(X_test, list):
-                X_test = np.array(X_test)
-                
-            if isinstance(coords_test, pd.DataFrame):
-                coords_test = coords_test.values
-            elif isinstance(coords_test, list):
-                coords_test = np.array(coords_test)
-                
-            # Chuyển đổi thành numpy array
+            if isinstance(X_test, pd.DataFrame): X_test = X_test.values
+            elif isinstance(X_test, list): X_test = np.array(X_test)
+
+            if isinstance(coords_test, pd.DataFrame): coords_test = coords_test.values
+            elif isinstance(coords_test, list): coords_test = np.array(coords_test)
+
             X_test = np.array(X_test)
             coords_test = np.array(coords_test)
-            
+
             # Đảm bảo chỉ lấy tọa độ 2D (x, y)
             if coords_test.shape[1] > 2:
                 logger.warning(f"Tọa độ kiểm tra có {coords_test.shape[1]} chiều. Chỉ sử dụng 2 chiều đầu tiên (x, y).")
                 coords_test = coords_test[:, :2]
-            
+
             # Xử lý đặc biệt cho coords_test có định dạng chuỗi 'AxB'
             coords_test_numeric = np.zeros((coords_test.shape[0], 2), dtype=float)
             for i in range(coords_test.shape[0]):
-                for j in range(min(coords_test.shape[1], 2)):  # Đảm bảo chỉ xử lý tối đa 2 chiều
+                for j in range(min(coords_test.shape[1], 2)):
                     val = coords_test[i, j]
-                    if isinstance(val, (int, float)):
-                        coords_test_numeric[i, j] = val
+                    if isinstance(val, (int, float)): coords_test_numeric[i, j] = val
                     elif isinstance(val, str) and 'x' in val:
-                        # Xử lý chuỗi định dạng "AxB"
-                        try:
-                            # Lấy số đầu tiên trước dấu 'x'
-                            coords_test_numeric[i, j] = float(val.split('x')[0])
-                            logger.debug(f"Đã chuyển đổi tọa độ kiểm tra '{val}' thành {coords_test_numeric[i, j]}")
+                        try: coords_test_numeric[i, j] = float(val.split('x')[0])
                         except (ValueError, IndexError):
-                            logger.warning(f"Không thể chuyển đổi tọa độ kiểm tra '{val}', gán giá trị 0")
-                            coords_test_numeric[i, j] = 0.0
+                            logger.warning(f"Không thể chuyển đổi tọa độ kiểm tra '{val}', gán giá trị 0"); coords_test_numeric[i, j] = 0.0
                     else:
-                        try:
-                            coords_test_numeric[i, j] = float(val)
+                        try: coords_test_numeric[i, j] = float(val)
                         except (ValueError, TypeError):
-                            logger.warning(f"Không thể chuyển đổi tọa độ kiểm tra '{val}', gán giá trị 0")
-                            coords_test_numeric[i, j] = 0.0
-            
-            logger.info(f"Đã chuyển đổi tọa độ kiểm tra thành dạng 2D (x, y)")
-            
+                            logger.warning(f"Không thể chuyển đổi tọa độ kiểm tra '{val}', gán giá trị 0"); coords_test_numeric[i, j] = 0.0
+
+            logger.info(f"Đã chuyển đổi tọa độ kiểm tra thành dạng số 2D (x, y)")
+
             # Dự đoán và tính khoảng cách lỗi
+            # Gọi predict để lấy cả details
             predictions, details = self.predict(X_test, return_details=True)
-            
+
             if predictions is None:
                 logger.error("Không thể thực hiện dự đoán")
-                return None
-                
+                # Trả về None cho tất cả nếu dự đoán lỗi
+                return None, None, None
+
             # Đảm bảo chỉ so sánh trong không gian 2D
             if predictions.shape[1] > 2:
                 logger.warning(f"Tọa độ dự đoán có {predictions.shape[1]} chiều. Chỉ so sánh 2 chiều đầu tiên (x, y).")
-                predictions = predictions[:, :2]
-                
-            # Tính khoảng cách Euclidean
-            distances = np.sqrt(np.sum((predictions - coords_test_numeric) ** 2, axis=1))
-            
+                predictions_2d = predictions[:, :2]
+            else:
+                predictions_2d = predictions
+
+            # Tính khoảng cách Euclidean sử dụng predictions_2d
+            distances = np.sqrt(np.sum((predictions_2d - coords_test_numeric) ** 2, axis=1))
+
             # Tính các metric cơ bản
             metrics = {
                 'mean_distance': np.mean(distances),
@@ -443,63 +435,45 @@ class ClusterRegression:
                 'min_distance': np.min(distances),
                 'std_distance': np.std(distances)
             }
-            
-            # Log thông tin chi tiết về sai số
             logger.info(f"Sai số trung bình: {metrics['mean_distance']:.2f} cm")
             logger.info(f"Sai số trung vị: {metrics['median_distance']:.2f} cm")
             logger.info(f"Sai số lớn nhất: {metrics['max_distance']:.2f} cm")
             logger.info(f"Sai số nhỏ nhất: {metrics['min_distance']:.2f} cm")
 
-            # --- Phân tích dựa trên KHỚP/KHÔNG KHỚP NHÃN (details['match']) ---
-            matches_np = np.array(details['match']) # Lấy danh sách True/False
-            total_samples = len(distances) # Tổng số mẫu test
+            # Phân tích dựa trên KHỚP/KHÔNG KHỚP NHÃN
+            if details and 'match' in details:
+                matches_np = np.array(details['match'])
+                total_samples = len(distances)
+                match_idx = np.where(matches_np == True)[0]
+                non_match_idx = np.where(matches_np == False)[0]
 
-            # Nhóm KHỚP NHÃN (match == True)
-            match_idx = np.where(matches_np == True)[0]
-            num_matching = len(match_idx)
-            if num_matching > 0:
-                percent_matching = num_matching / total_samples * 100
-                mean_dist_matching = np.mean(distances[match_idx])
-                # Log đúng tên và đúng số lượng
-                logger.info(f"Sai số trung bình cho mẫu KHỚP nhãn ({num_matching} mẫu, {percent_matching:.1f}%): {mean_dist_matching:.2f} cm")
-                # Lưu metric nếu cần
-                metrics['matching_samples'] = {
-                    'count': num_matching,
-                    'percentage': percent_matching,
-                    'mean_distance': mean_dist_matching
-                }
+                if len(match_idx) > 0:
+                    metrics['matching_samples'] = {
+                        'count': len(match_idx),
+                        'percentage': len(match_idx) / total_samples * 100,
+                        'mean_distance': np.mean(distances[match_idx])
+                    }
+                    logger.info(f"Sai số trung bình cho mẫu KHỚP nhãn ({metrics['matching_samples']['count']} mẫu, {metrics['matching_samples']['percentage']:.1f}%): {metrics['matching_samples']['mean_distance']:.2f} cm")
 
-            # Nhóm KHÔNG KHỚP NHÃN (match == False)
-            non_match_idx = np.where(matches_np == False)[0]
-            num_non_matching = len(non_match_idx) # Sẽ đếm đúng số lượng không khớp
-            if num_non_matching > 0:
-                percent_non_matching = num_non_matching / total_samples * 100 # Sẽ tính đúng phần trăm
-                mean_dist_non_matching = np.mean(distances[non_match_idx]) # Tính trên tất cả các mẫu không khớp
-                # Log đúng tên và đúng số lượng
-                logger.info(f"Sai số trung bình cho mẫu KHÔNG KHỚP nhãn ({num_non_matching} mẫu, {percent_non_matching:.1f}%): {mean_dist_non_matching:.2f} cm")
-                # Lưu metric nếu cần
-                metrics['non_matching_samples'] = {
-                    'count': num_non_matching,
-                    'percentage': percent_non_matching,
-                    'mean_distance': mean_dist_non_matching
-                }
+                if len(non_match_idx) > 0:
+                     metrics['non_matching_samples'] = {
+                         'count': len(non_match_idx),
+                         'percentage': len(non_match_idx) / total_samples * 100,
+                         'mean_distance': np.mean(distances[non_match_idx])
+                     }
+                     logger.info(f"Sai số trung bình cho mẫu KHÔNG KHỚP nhãn ({metrics['non_matching_samples']['count']} mẫu, {metrics['non_matching_samples']['percentage']:.1f}%): {metrics['non_matching_samples']['mean_distance']:.2f} cm")
+            else:
+                 logger.warning("Không có thông tin 'details' để phân tích khớp/không khớp nhãn.")
 
-            # (Tùy chọn) Log thêm về cách dự đoán cuối cùng được chọn ('selected')
-            if 'selected' in details:
-                selected_local_idx = np.where(np.array(details['selected']) == 'local')[0]
-                selected_global_idx = np.where(np.array(details['selected']) == 'global')[0]
-                selected_average_idx = np.where(np.array(details['selected']) == 'adjusted_average')[0]
-                logger.info(f"   (Chi tiết lựa chọn dự đoán cuối: Local={len(selected_local_idx)}, Global={len(selected_global_idx)}, Average={len(selected_average_idx)})")
-
-
-            return metrics
+            # Trả về metrics, predictions (dạng 2D) và tọa độ thực tế đã xử lý
+            return metrics, predictions_2d, coords_test_numeric
 
         except Exception as e:
             logger.error(f"Lỗi khi đánh giá: {str(e)}")
-            # Log thêm traceback để debug
             import traceback
             logger.error(traceback.format_exc())
-            return None
+            # Trả về None cho tất cả nếu có lỗi
+            return None, None, None
     
     def save_models(self, base_path):
         """Lưu mô hình"""
@@ -577,6 +551,22 @@ class ClusterRegression:
             
             instance.valid_clusters = list(instance.cluster_predictors.keys())
             instance.trained = True
+
+            # Tải mô hình Kernel PCA đã lưu
+            pca_model_path = os.path.join(base_path, "kernel_pca_model.pkl") # Hoặc đường dẫn cố định nếu lưu ở thư mục data
+            if os.path.exists(pca_model_path):
+                 instance.kernel_pca = joblib.load(pca_model_path)
+            else:
+                 # Fallback: load model cũ nếu có
+                 old_pca_path = os.path.join(base_path, "kernel_pca.pkl")
+                 if os.path.exists(old_pca_path):
+                      logger.warning("Không tìm thấy kernel_pca_model.pkl, đang tải kernel_pca.pkl cũ.")
+                      instance.kernel_pca = joblib.load(old_pca_path)
+                 else:
+                      logger.error(f"Không tìm thấy file mô hình Kernel PCA tại {pca_model_path} hoặc {old_pca_path}")
+                      # Có thể trả về None hoặc raise lỗi tùy theo logic mong muốn
+                      return None
+
             return instance
             
         except Exception as e:

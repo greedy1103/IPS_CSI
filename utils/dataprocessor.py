@@ -65,7 +65,7 @@ class DataPreprocessor:
             
             # Luôn xử lý toàn bộ dữ liệu test (subset_ratio=1.0) để có kết quả đánh giá chính xác
             logger.info(f"Luôn xử lý 100% dữ liệu test để đánh giá chính xác")
-            test_features, test_coords = self._load_npz_data(test_dir, 1.0)
+            test_features, test_coords = self._load_npz_data(test_dir, subset_ratio)
             
             # Tạo DataFrame
             X_train = pd.DataFrame(train_features)

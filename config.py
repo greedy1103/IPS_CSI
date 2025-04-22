@@ -69,29 +69,13 @@ NUM_WORKERS = 8      # Số worker cho việc load dữ liệu
 
 # Cấu hình cho KernelPCA (giảm chiều dữ liệu)
 # Kernel Cosine - Phù hợp cho tín hiệu viễn thông
-KERNEL = 'cosine'  # Kernel Cosine cho tín hiệu viễn thông
-                   # K(x,y) = cos(θ) = (x^T y) / (||x|| * ||y||)
-                   # - Bất biến với tỷ lệ
-                   # - Phù hợp với tín hiệu có biên độ thay đổi
-                   # - Xử lý tốt tín hiệu tuần hoàn
-                   # - Không cần chuẩn hóa dữ liệu
-                   # - Không cần tham số bổ sung
+KERNEL = 'cosine'  # K(x,y) = cos(θ) = (x^T y) / (||x|| * ||y||)
 
-# Kernel RBF - Phù hợp cho tín hiệu viễn thông
-# KERNEL = 'rbf'     # Kernel RBF cho tín hiệu viễn thông
-                     # K(x,y) = exp(-gamma * ||x-y||²)
-                     # - Xử lý tốt dữ liệu phi tuyến
-                     # - Bắt được các mẫu phức tạp
-                     # - Hoạt động tốt với dữ liệu nhiễu
-                     # - Phù hợp với tín hiệu CSI
+# Kernel RBF 
+#KERNEL = 'rbf' # K(x,y) = exp(-gamma * ||x-y||²)
+#GAMMA = 0.1   
 
-# GAMMA = 0.01       # Tham số cho kernel RBF
-                     # Giá trị nhỏ (0.01) để:
-                     # - Bắt được các mẫu phức tạp
-                     # - Giảm ảnh hưởng của nhiễu
-                     # - Phù hợp với tín hiệu CSI
-
-N_COMPONENTS = 100  
+N_COMPONENTS = 150
 
 # Cấu hình đường dẫn
 SAVE_DIR = 'C:/Users/Dell/DATN/Final/results'  # Thư mục lưu kết quả 

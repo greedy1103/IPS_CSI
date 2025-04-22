@@ -176,50 +176,63 @@ def main():
         # Đánh giá mô hình
         logger.info("Đang đánh giá mô hình...")
         start_time = time.time()
-        eval_results = model.evaluate(X_test, coords_test)
+        evaluation_data = model.evaluate(X_test, coords_test)
         eval_time = time.time() - start_time
         
-        # Hiển thị kết quả đánh giá
+        # Kiểm tra xem evaluation_data có hợp lệ không
+        if evaluation_data is None or evaluation_data[0] is None:
+            logger.error("Đánh giá mô hình thất bại.")
+            return
+        
+        # Tách tuple thành các biến riêng biệt
+        metrics, predictions_eval, true_coords_eval = evaluation_data
+        
+        # Hiển thị kết quả đánh giá từ dictionary metrics
         logger.info("Kết quả đánh giá:")
-        logger.info(f"  Khoảng cách trung bình: {eval_results['mean_distance']:.2f} cm")
-        logger.info(f"  Khoảng cách trung vị: {eval_results['median_distance']:.2f} cm")
-        logger.info(f"  Khoảng cách lớn nhất: {eval_results['max_distance']:.2f} cm")
-        logger.info(f"  Khoảng cách nhỏ nhất: {eval_results['min_distance']:.2f} cm")
-        logger.info(f"  Độ lệch chuẩn: {eval_results['std_distance']:.2f} cm")
+        logger.info(f"  Khoảng cách trung bình: {metrics['mean_distance']:.2f} cm")
+        logger.info(f"  Khoảng cách trung vị: {metrics['median_distance']:.2f} cm")
+        logger.info(f"  Khoảng cách lớn nhất: {metrics['max_distance']:.2f} cm")
+        logger.info(f"  Khoảng cách nhỏ nhất: {metrics['min_distance']:.2f} cm")
+        logger.info(f"  Độ lệch chuẩn: {metrics['std_distance']:.2f} cm")
         logger.info(f"  Thời gian đánh giá: {eval_time:.2f} giây")
         
         # Trực quan hóa kết quả
         if args.visualize:
-            predictions, details = model.predict(X_test, return_details=True)
+            # Không cần gọi predict lại, sử dụng kết quả từ evaluate
+            # predictions, details = model.predict(X_test, return_details=True) 
             
             # Phân cụm
             if hasattr(model, 'clusters_') and model.clusters_ is not None:
                 plot_path = os.path.join(results_dir, "clusters.png") if args.save_results else None
                 visualize_clusters(coords_train, model.clusters_, save_path=plot_path)
             
-            # So sánh dự đoán
+            # So sánh dự đoán - sử dụng predictions_eval và true_coords_eval từ evaluate
             plot_path = os.path.join(results_dir, "predictions.png") if args.save_results else None
-            visualize_prediction_comparison(coords_test, predictions, save_path=plot_path)
+            visualize_prediction_comparison(true_coords_eval, predictions_eval, save_path=plot_path)
         
         # Lưu kết quả
         if args.save_results:
-            # Lưu kết quả đánh giá
+            # Lưu kết quả đánh giá (metrics dictionary)
             eval_results_path = os.path.join(results_dir, "evaluation_results.json")
             with open(eval_results_path, 'w') as f:
-                json.dump(eval_results, f, indent=4)
-            logger.info(f"Đã lưu kết quả đánh giá tại {eval_results_path}")
+                # Đảm bảo metrics là dictionary trước khi dump
+                if isinstance(metrics, dict):
+                    json.dump(metrics, f, indent=4)
+                    logger.info(f"Đã lưu kết quả đánh giá tại {eval_results_path}")
+                else:
+                    logger.error(f"Không thể lưu kết quả đánh giá vì metrics không phải là dictionary.")
             
-            # Lưu dự đoán
-            predictions, _ = model.predict(X_test)
+            # Lưu dự đoán - sử dụng predictions_eval và true_coords_eval từ evaluate
+            # predictions, _ = model.predict(X_test)
             predictions_df = pd.DataFrame({
-                'true_x': coords_test[:, 0],
-                'true_y': coords_test[:, 1],
-                'pred_x': predictions[:, 0],
-                'pred_y': predictions[:, 1]
+                'true_x': true_coords_eval[:, 0],
+                'true_y': true_coords_eval[:, 1],
+                'pred_x': predictions_eval[:, 0],
+                'pred_y': predictions_eval[:, 1]
             })
             
             # Tính khoảng cách lỗi
-            distances = np.sqrt(np.sum((coords_test - predictions) ** 2, axis=1))
+            distances = np.sqrt(np.sum((true_coords_eval - predictions_eval) ** 2, axis=1))
             predictions_df['error_distance'] = distances
             
             # Lưu file CSV
